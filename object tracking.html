@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Object Detection & Tracking</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .video-container {
+            position: relative;
+            display: inline-block;
+            box-shadow: 0 0 20px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .bounding-box {
+            position: absolute;
+            border: 3px solid;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            pointer-events: none;
+            transition: all 0.1s ease;
+        }
+        .bounding-box-label {
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            padding: 2px 5px;
+            border-radius: 3px;
+            margin-bottom: 3px;
+        }
+        .tracking-animation {
+            position: absolute;
+            background-color: rgba(255,255,255,0.3);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.5; }
+            100% { transform: scale(0.95); opacity: 1; }
+        }
+        .stats-panel {
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+        }
+        .settings-panel {
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+        }
+        .settings-open .settings-panel {
+            transform: translateX(0);
+        }
+        .fps-counter {
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-4xl font-bold text-center mb-8 bg-gradient-to-r from-blue-600 to-purple-600 text-transparent bg-clip-text">
+            Real-Time Object Detection & Tracking
+        </h1>
+
+        <div class="flex flex-col lg:flex-row gap-8">
+            <!-- Main video container -->
+            <div class="flex-1">
+                <div class="video-container rounded-xl" id="videoContainer">
+                    <video id="videoFeed" autoplay muted loop class="rounded-xl" style="max-width: 100%; display: none;">
+                        <source src="https://assets.mixkit.co/videos/preview/mixkit-going-down-a-curved-highway-through-a-mountain-range-41576-large.mp4" type="video/mp4">
+                    </video>
+                    <canvas id="videoCanvas" class="rounded-xl"></canvas>
+                    
+                    <!-- Indicator when tracking is active -->
+                    <div id="trackingIndicator" class="absolute top-4 right-4 flex items-center gap-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold shadow-lg">
+                        <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                        TRACKING ACTIVE
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="flex flex-wrap gap-4 mt-4">
+                    <button id="startBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                        </svg>
+                        Start Detection
+                    </button>
+                    <button id="pauseBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg flex items-center gap-2" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                        Pause
+                    </button>
+                    <div class="relative flex-1">
+                        <input type="range" id="confidenceSlider" min="20" max="90" value="40" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        <div class="flex justify-between text-xs text-gray-600 mt-1">
+                            <span>Low Confidence</span>
+                            <span>High Confidence</span>
+                        </div>
+                        <div class="text-center mt-1 text-sm font-medium">
+                            Confidence Threshold: <span id="confidenceValue">40%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Side panels -->
+            <div class="w-full lg:w-80 flex flex-col gap-6">
+                <!-- Stats panel -->
+                <div class="stats-panel rounded-xl p-4 text-white">
+                    <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Detection Statistics
+                    </h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span>Objects Detected:</span>
+                            <span id="objectsCount" class="font-bold">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Frames Processed:</span>
+                            <span id="frameCount" class="font-bold">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Processing FPS:</span>
+                            <span id="fpsCounter" class="fps-counter font-bold">0.0</span>
+                        </div>
+                        <div class="pt-2 border-t border-gray-600">
+                            <div class="flex justify-between mb-1">
+                                <span>Memory Usage:</span>
+                                <span>64%</span>
+                            </div>
+                            <div class="w-full bg-gray-600 rounded-full h-2">
+                                <div class="bg-blue-500 h-2 rounded-full" style="width: 64%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detected objects list -->
+                <div class="bg-white rounded-xl shadow-md p-4 flex-1">
+                    <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                        </svg>
+                        Detected Objects
+                    </h3>
+                    <div class="overflow-auto max-h-64" id="detectedObjectsList">
+                        <div class="text-center text-gray-500 py-8">No objects detected yet</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings button and panel -->
+        <button id="settingsToggle" class="fixed bottom-6 left-6 bg-gray-800 text-white p-3 rounded-full shadow-xl hover:bg-gray-700 transition-all">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0 3.35a1.724 1.724 0 001.066 2.573c-.94 1.543.826 3.31 2.37 2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+        </button>
+
+        <div class="settings-panel fixed bottom-28 left-6 bg-white rounded-xl shadow-xl p-4 w-72 z-10">
+            <h3 class="text-lg font-bold mb-4">Detection Settings</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Model Type</label>
+                    <select class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option>YOLOv9 Nano (fastest)</option>
+                        <option selected>YOLOv8 Medium</option>
+                        <option>YOLOv7 Large</option>
+                        <option>Faster R-CNN</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Input Source</label>
+                    <select id="inputSource" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="webcam">Webcam</option>
+                        <option value="file" selected>Video File</option>
+                        <option value="url">Video URL</option>
+                    </select>
+                </div>
+                <div id="fileInputContainer">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Video File</label>
+                    <input type="file" accept="video/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tracking Algorithm</label>
+                    <select class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                        <option>SORT (Fast)</option>
+                        <option selected>Deep SORT (Accurate)</option>
+                        <option>ByteTrack</option>
+                    </select>
+                </div>
+                <button class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                    Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simulated object classes and colors for detection
+        const CLASSES = [
+            'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train',
+            'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign',
+            'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep',
+            'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella',
+            'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard',
+            'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard',
+            'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork',
+            'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
+            'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair',
+            'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv',
+            'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave',
+            'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
+            'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+        ];
+        
+        const COLORS = [
+            '#FF3838', '#FF9D97', '#FF701F', '#FFB21D', '#CFD231', '#48F90A',
+            '#92CC17', '#3DDB86', '#1A9334', '#00D4BB', '#2C99A8', '#00C2FF',
+            '#344593', '#6473FF', '#0018EC', '#8438FF', '#520085', '#CB38FF',
+            '#FF95C8', '#FF37C7'
+        ];
+        
+        // DOM elements
+        const video = document.getElementById('videoFeed');
+        const canvas = document.getElementById('videoCanvas');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const objectsCount = document.getElementById('objectsCount');
+        const frameCount = document.getElementById('frameCount');
+        const fpsCounter = document.getElementById('fpsCounter');
+        const detectedObjectsList = document.getElementById('detectedObjectsList');
+        const confidenceSlider = document.getElementById('confidenceSlider');
+        const confidenceValue = document.getElementById('confidenceValue');
+        const settingsToggle = document.getElementById('settingsToggle');
+        const inputSource = document.getElementById('inputSource');
+        const fileInputContainer = document.getElementById('fileInputContainer');
+
+        // State variables
+        let isRunning = false;
+        let frameCounter = 0;
+        let lastTimestamp = 0;
+        let fps = 0;
+        let detectionInterval;
+        let tracked
